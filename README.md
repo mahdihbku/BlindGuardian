@@ -12,8 +12,10 @@ python setup.py build_ext --inplace
 Server:
 ```bash
 ./server_pi.py --suspectsDir suspectsDir/ --serverIP=127.0.0.1 --verbose --CPUs=16 --serverPort 8003
+./server_pi.py -h // for help
 ```
 Camera:
 ```bash
 ./client_pi.py --serverIP=127.0.0.1 --threshold=0.99 --serverPort=8003
+./client_pi.py -h // for help
 ```
