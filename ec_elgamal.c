@@ -117,14 +117,19 @@ int score_is_positive(char *ciphert) {
 	EC_POINT_mul(curve, c1, NULL, c1, x, ctx);
 	EC_POINT_invert(curve, c1, ctx);
 	EC_POINT_add(curve, c1, c1, c2, ctx);
+
 	unsigned char* buf = malloc(POINT_COMPRESSED_len * sizeof(unsigned char));
 	size_t c1_size = EC_POINT_point2oct(curve, c1, POINT_CONVERSION_COMPRESSED, buf, POINT_COMPRESSED_len, ctx);
-	unsigned char* x_buf = buf+1;
+	unsigned char x_buf[4];
+	x_buf[0] = buf[1];	// these values gave the least collisions
+	x_buf[1] = buf[3];
+	x_buf[2] = buf[11];
+	x_buf[3] = buf[14];
 	size_t index = (unsigned long long)*((unsigned int*) x_buf);	// 4 bytes to be used as address in the hashing table
 	index = index >> 2;	// index is 30 bits not 32
-	index = index * 2;
+	index = index * 2 * 17;
 	while (decryption_buf[index] != 0x0 && (decryption_buf[index] != buf[0] || memcmp(&decryption_buf[index+1], &buf[5], 16)))
-		index++;
+		index+=17;
 	if (decryption_buf[index] == 0x0)	// not found in table => negative
 		return 0;
 	else	// exists in table => positive
@@ -156,10 +161,12 @@ void decrypt_ec(char *message, char *ciphert) {
 
 void generate_decrypt_file() {
 	unsigned char* buf = malloc(POINT_COMPRESSED_len * sizeof(unsigned char));
-	unsigned char* x_buf = buf+1;
-	size_t index, h1_size, file_size = (size_t)1073741824 * 17 * 2;
+	unsigned char x_buf[4];
+	size_t index, h1_size, collisions = 0, collision_moves, max_collision_moves=0, file_size = (size_t)1073741824 * 17 * 2;	//hash[0] in buf[0] for the sign, and hash[5..20] in buf[1..16] for the hash
 	EC_POINT *h1 = EC_POINT_new(curve);
 	EC_POINT_set_to_infinity(curve, h1);
+	EC_POINT_add(curve, h1, h1, h, ctx);
+
 	decryption_buf = (unsigned char*) calloc (file_size, sizeof(unsigned char));
 	// Each ct is of size 32 bytes. 4 bytes will be used as @ => and 16+1 bytes as data. Bucket size = 2
 	if (decryption_buf == NULL) {
@@ -167,26 +174,34 @@ void generate_decrypt_file() {
 		exit(0);
 	}
 	for (unsigned int i=0; i<1073741824; i++) {
-		if (i%1048576 == 0)
-			printf("generate_decrypt_file: i=%u/%u\n", i, 1073741824-1);
 		h1_size = EC_POINT_point2oct(curve, h1, POINT_CONVERSION_COMPRESSED, buf, POINT_COMPRESSED_len, ctx);
-		if (h1_size != POINT_COMPRESSED_len)
-			printf("generate_decrypt_file: ERROR: h1_size != POINT_COMPRESSED_len!!!\n");
-		else {
-			index = (unsigned long long)*((unsigned int*) x_buf);
-			index = index >> 2;	// index is 30 bits not 32
-			index = index * 2;	// 2 entries per bucket
-			while (decryption_buf[index] != 0x0)	// not empty entries 
-				index++;
-			decryption_buf[index] = buf[0];
-			memcpy(&decryption_buf[index+1], &buf[5], 16);
+		x_buf[0] = buf[1];	// these values gave the least collisions
+		x_buf[1] = buf[3];
+		x_buf[2] = buf[11];
+		x_buf[3] = buf[14];
+		index = (unsigned long long)*((unsigned int*) x_buf);
+		index = index >> 2;	// index is 30 bits not 32
+		index = index * 2 * 17;	// 2 entries per bucket
+		collision_moves = 0;
+		while (decryption_buf[index] != 0x0) {	// not empty entries, if not empty it must be 0x2 or 0x3
+			index+=17;
+			collisions++;
+			collision_moves++;
 		}
+		if (max_collision_moves < collision_moves) {
+			max_collision_moves = collision_moves;
+			printf("generate_decrypt_file: at index=%lu, collisions=%lu, max_collision_moves=%lu, i=%u/%u, table occupation=%lu%%\n", index, collisions, collision_moves, i/1024, 1073741824/1024, (size_t)i*100/1073741824);
+		}
+		decryption_buf[index] = buf[0];
+		memcpy(&decryption_buf[index+1], &buf[5], 16);
 		EC_POINT_add(curve, h1, h1, h, ctx);
 	}
+	printf("generate_decrypt_file: writing to file...\n");
 	FILE *pfile;	// writing decryption_buf to file
 	pfile = fopen("decrypt_file.bin", "wb");
 	fwrite(decryption_buf, sizeof(unsigned char), file_size, pfile);
 	fclose(pfile);
+	printf("generate_decrypt_file: file generated successfully!\n");
 }
 
 void add2(char *result, char *ct1, char *ct2) {
@@ -321,6 +336,37 @@ void generate_keys(char *pub_filename, char *priv_filename) {
 	FILE *priv_file_p = fopen(priv_filename, "wb");
 	fwrite(priv_buf, priv_len, 1, priv_file_p);
 	fclose(priv_file_p);
+}
+
+void test() {
+	prepare("ec_pub.txt", "ec_priv.txt");
+	// generate_decrypt_file();
+	load_encryption_file();
+	char* ct1 = (char*) malloc (130 * sizeof(char));
+	encrypt_ec(ct1, "1234");
+	char pt1[20];
+	decrypt_ec(pt1, ct1);
+	printf("pt1=%s\n", pt1);
+	printf("score_is_positive(ct1)=%d\n", score_is_positive(ct1));
+
+	char* ct2 = (char*) malloc (130 * sizeof(char));
+	encrypt_ec(ct2, "-1234");
+	char pt2[20];
+	decrypt_ec(pt2, ct2);
+	printf("pt2=%s\n", pt2);
+	printf("score_is_positive(ct2)=%d\n", score_is_positive(ct2));
+
+
+	encrypt_ec(ct1, "1284734");
+	decrypt_ec(pt1, ct1);
+	printf("pt1=%s\n", pt1);
+	printf("score_is_positive(ct1)=%d\n", score_is_positive(ct1));
+
+
+	encrypt_ec(ct2, "-128734");
+	decrypt_ec(pt2, ct2);
+	printf("pt2=%s\n", pt2);
+	printf("score_is_positive(ct2)=%d\n", score_is_positive(ct2));
 }
 
 int main() {

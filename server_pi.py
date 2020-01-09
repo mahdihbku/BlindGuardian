@@ -14,22 +14,22 @@ import struct
 import datetime
 from multiprocessing import Pool
 
-fileDir = os.path.dirname(os.path.realpath(__file__))
-modelDir = os.path.join(fileDir, '..', 'models')
-suspectsDir = os.path.join(fileDir, '..', 'suspectsDir')
-dlibModelDir = os.path.join(modelDir, 'dlib')
-openfaceModelDir = os.path.join(modelDir, 'openface')
+fileDir				= os.path.dirname(os.path.realpath(__file__))
+modelDir			= os.path.join(fileDir, '..', 'models')
+suspectsDir			= os.path.join(fileDir, '..', 'suspectsDir')
+dlibModelDir		= os.path.join(modelDir, 'dlib')
+openfaceModelDir	= os.path.join(modelDir, 'openface')
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--suspectsDir', type=str, help="Path to directory containing the webcam faces.", default=suspectsDir)
-parser.add_argument('--dlibFacePredictor', type=str, help="Path to dlib's face predictor.", default=os.path.join(dlibModelDir, "shape_predictor_68_face_landmarks.dat"))
-parser.add_argument('--networkModel', type=str, help="Path to Torch network model.", default=os.path.join(openfaceModelDir, 'nn4.small2.v1.t7'))
-parser.add_argument('--imgDim', type=int, help="Default image dimension.", default=96)
-parser.add_argument('--serverPort', type=int, help="Port of the server.", default=6546)
-parser.add_argument('--serverIP', type=str, help="IP of the server.", default='127.0.0.1')
-parser.add_argument('--CPUs', type=int, help="Number of parallel CPUs to be used.", default=4)
-parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--generateKeys', action='store_true', help="Generate new server keys.")
+parser.add_argument('--suspectsDir',		type=str,	help="Path to directory containing the webcam faces.",	default=suspectsDir															)
+parser.add_argument('--dlibFacePredictor',	type=str,	help="Path to dlib's face predictor.",					default=os.path.join(dlibModelDir, "shape_predictor_68_face_landmarks.dat")	)
+parser.add_argument('--networkModel',		type=str,	help="Path to Torch network model.",					default=os.path.join(openfaceModelDir, 'nn4.small2.v1.t7')					)
+parser.add_argument('--imgDim',				type=int,	help="Default image dimension.",						default=96																	)
+parser.add_argument('--serverPort',			type=int,	help="Port of the server.",								default=6546																)
+parser.add_argument('--serverIP',			type=str,	help="IP of the server.",								default='127.0.0.1'															)
+parser.add_argument('--CPUs',				type=int,	help="Number of parallel CPUs to be used.",				default=4																	)
+parser.add_argument('--verbose',						help="Show more information.", 							action='store_true'															)
+parser.add_argument('--generateKeys',					help="Generate new server keys.", 						action='store_true'															)
 args = parser.parse_args()
 
 align = openface.AlignDlib(args.dlibFacePredictor)
@@ -84,6 +84,9 @@ def sendBCfiles(connection):
 def decryptList(enc_list):
 	return [ec_elgamal.decrypt_ec(d) for d in enc_list]
 
+def isScorePositiveList(enc_list):
+	return [ec_elgamal.score_is_positive(d) for d in enc_list]
+
 def getScores(connection):
 	try:
 		ec_elgamal.prepare(pub_key_file, priv_key_file)
@@ -91,11 +94,13 @@ def getScores(connection):
 		enc_D = pickle.loads(data)
 
 		start_dec = time.time()
+		D = [ec_elgamal.score_is_positive(encrypted_score) for encrypted_score in enc_D]
 		# pool = Pool(processes=nbr_of_CPUs)
-		# D = pool.map(decryptList, (enc_D[int(i*len(enc_D)/nbr_of_CPUs):int((i+1)*len(enc_D)/nbr_of_CPUs)] for i in range(nbr_of_CPUs)))
+		# D = pool.map(isScorePositiveList, (enc_D[int(i*len(enc_D)/nbr_of_CPUs):int((i+1)*len(enc_D)/nbr_of_CPUs)] for i in range(nbr_of_CPUs)))
 		# pool.close()
 		# D = [ent for sublist in D for ent in sublist]	#to flatten the resultant Ds into one D
-		D = [ec_elgamal.score_is_positive(encrypted_score) for encrypted_score in enc_D]
+		
+		#D = [ec_elgamal.decrypt_ec(encrypted_score) for encrypted_score in enc_D]
 		end_dec = time.time()
 		if verbose:	print("getScores: dec_time for {} suspects: {} ms.".format(len(D), (end_dec-start_dec)*1000))
 		if verbose:	print(D)
@@ -104,11 +109,9 @@ def getScores(connection):
 		results_file.write("Online:dec_time= {}\n".format((end_dec-start_dec)*1000))
 		results_file.close()
 
-		# i=0
-		# while (i<len(D) and len(D[i])<200):		# TODO: uncomment !!
-		# 	i+=1									# TODO: uncomment !!
 		if (0 in D):	# SUSPECT DETECTED!!!
-			print("getScores: SUSPECT DETECTED! id={} name={}".format(i, suspects_names[i]))
+			suspect_id = D.index(0)
+			print("getScores: SUSPECT DETECTED! id={} name={}".format(suspect_id, suspects_names[suspect_id]))
 			message = "GET image  "
 			connection.sendall(message)
 			data = recv_msg(connection)
@@ -151,10 +154,16 @@ def waitForClients():
 			print("waitForClients: Connection closed with client {}".format(client_address))
 
 def normalizeRep(rep):
-	return [int(r*normalizing_multiplier+normalizing_adder) for r in rep]
+	normalized_rep = [int(r*normalizing_multiplier+normalizing_adder) for r in rep]
+	for r in normalized_rep:
+		if r<0:
+			r = 0
+		elif r>255:
+			r=255
+	return normalized_rep
 
 def encryptForB(list):
-	return [[ec_elgamal.encrypt_ec(str(f**2)) for f in suspect] for suspect in list]
+	return [ec_elgamal.encrypt_ec(str(sum([f**2 for f in suspect]))) for suspect in list]
 
 def encryptForC(list):
 	return [[ec_elgamal.encrypt_ec(str(-2*f)) for f in suspect] for suspect in list]
@@ -220,9 +229,12 @@ def recvall(sock, n):
 	return data
 
 if __name__ == '__main__':
-	if args.generateKeys :
-		ec_elgamal.generate_keys(pub_key_file, priv_key_file)
-		ec_elgamal.generate_decrypt_file()
+	#if args.generateKeys :	# to use with precaution. That will require regenerating the decryption file
+		#ec_elgamal.generate_keys(pub_key_file, priv_key_file)
+		#TODO uncomment
+		#ec_elgamal.prepare(pub_key_file, priv_key_file)
+		#ec_elgamal.generate_decrypt_file()
+	print("main: Loading the decryption file to memory, this may take few minutes...")
 	ec_elgamal.load_encryption_file()
 	generateDBfiles()
 	waitForClients()

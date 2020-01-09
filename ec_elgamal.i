@@ -33,6 +33,7 @@ extern void add2(char *result, char *ct1, char *ct2);
 extern void add3(char *result, char *ct1, char *ct2, char *ct3);
 extern void add4(char *result, char *ct1, char *ct2, char *ct3, char *ct4);
 extern void mult(char *result, char *scalar, char *ct1);
+extern void test();
 %}
 
 %include "typemaps.i"
@@ -45,6 +46,7 @@ extern void generate_decrypt_file();
 extern void load_encryption_file();
 extern int score_is_positive(char *ciphert);
 extern void generate_keys(char *pub_filename, char *priv_filename);
+extern void test();
 
 %cstring_bounded_output(char *message, 30);
 extern void decrypt_ec(char *message, char *ciphert);
