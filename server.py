@@ -51,14 +51,14 @@ suspects_names = []
 def getRep(imgPath):
 	bgrImg = cv2.imread(imgPath)
 	if bgrImg is None:
-		return ''
+		return []
 	rgbImg = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
 	bb = align.getLargestFaceBoundingBox(rgbImg)
 	if bb is None:
-		return ''
+		return []
 	alignedFace = align.align(args.imgDim, rgbImg, bb, landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
 	if alignedFace is None:
-		return ''
+		return []
 	rep = net.forward(alignedFace)
 	return rep
 
@@ -175,7 +175,7 @@ def generateDBfiles():
 	for root, dirs, files in os.walk(args.suspectsDir):
 		for img in files:
 			imgrep = getRep(os.path.join(root, img))
-			if imgrep == '': continue
+			if len(imgrep) == 0: continue
 			suspects_reps.append(normalizeRep(imgrep))
 			suspects_names.append(os.path.join(root, img))
 	end_norm = time.time()
