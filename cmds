@@ -1,0 +1,1 @@
+root@mahdi-Precision-Tower-7910:/media/mahdi/OS/OpenFaceTestEC2/demos# ./server.py --suspectsDir suspectsDir10/ --serverIP 10.40.21.38 --CPUs 16 --verbose --serverPort 1234
