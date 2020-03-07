@@ -16,7 +16,7 @@ Server:
 ```
 Camera:
 ```bash
-./client.py --serverIP=127.0.0.1 --threshold=0.99 --serverPort=8003
-./client.py --Pi --serverIP=127.0.0.1 --serverPort=8003 # for Raspberry
-./client.py -h # for help
+./camera_seq.py --serverIP=127.0.0.1 --threshold=0.99 --serverPort=8003
+./camera_seq.py --Pi --serverIP=127.0.0.1 --serverPort=8003 # for Raspberry
+./camera_seq.py -h # for help
 ```
